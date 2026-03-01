@@ -345,6 +345,121 @@ describe("acp.agent event subscription", () => {
     })
   })
 
+
+  test("emits text chunks from message.part.updated when delta events are absent", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, chunks, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+
+        controller.push({
+          directory: cwd,
+          payload: {
+            type: "message.part.updated",
+            properties: {
+              part: {
+                id: "part_1",
+                sessionID: sessionId,
+                messageID: "msg_1",
+                type: "text",
+                text: "hello",
+              },
+            },
+          },
+        } as any)
+
+        controller.push({
+          directory: cwd,
+          payload: {
+            type: "message.part.updated",
+            properties: {
+              part: {
+                id: "part_1",
+                sessionID: sessionId,
+                messageID: "msg_1",
+                type: "text",
+                text: "hello world",
+              },
+            },
+          },
+        } as any)
+
+        await new Promise((r) => setTimeout(r, 20))
+
+        expect(chunks.get(sessionId)).toBe("hello world")
+        stop()
+      },
+    })
+  })
+
+  test("does not duplicate chunks when message.part.delta is followed by message.part.updated", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const { agent, controller, chunks, stop } = createFakeAgent()
+        const cwd = "/tmp/opencode-acp-test"
+
+        const sessionId = await agent.newSession({ cwd, mcpServers: [] } as any).then((x) => x.sessionId)
+
+        controller.push({
+          directory: cwd,
+          payload: {
+            type: "message.part.delta",
+            properties: {
+              sessionID: sessionId,
+              messageID: "msg_1",
+              partID: "msg_1_part",
+              field: "text",
+              delta: "hello",
+            },
+          },
+        } as any)
+
+        controller.push({
+          directory: cwd,
+          payload: {
+            type: "message.part.updated",
+            properties: {
+              part: {
+                id: "msg_1_part",
+                sessionID: sessionId,
+                messageID: "msg_1",
+                type: "text",
+                text: "hello",
+              },
+            },
+          },
+        } as any)
+
+        controller.push({
+          directory: cwd,
+          payload: {
+            type: "message.part.updated",
+            properties: {
+              part: {
+                id: "msg_1_part",
+                sessionID: sessionId,
+                messageID: "msg_1",
+                type: "text",
+                text: "hello world",
+              },
+            },
+          },
+        } as any)
+
+        await new Promise((r) => setTimeout(r, 20))
+
+        expect(chunks.get(sessionId)).toBe("hello world")
+        stop()
+      },
+    })
+  })
+
   test("does not create additional event subscriptions on repeated loadSession()", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
