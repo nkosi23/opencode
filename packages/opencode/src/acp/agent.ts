@@ -137,6 +137,7 @@ export namespace ACP {
     private eventStarted = false
     private bashSnapshots = new Map<string, string>()
     private toolStarts = new Set<string>()
+    private textSnapshots = new Map<string, string>()
     private permissionQueues = new Map<string, Promise<void>>()
     private permissionOptions: PermissionOption[] = [
       { optionId: "once", kind: "allow_once", name: "Allow once" },
@@ -446,6 +447,46 @@ export namespace ACP {
                 return
             }
           }
+
+          if (part.type === "text" && part.ignored !== true) {
+            const delta = this.textDelta(part.id, part.text)
+            if (!delta) return
+            await this.connection
+              .sessionUpdate({
+                sessionId,
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: {
+                    type: "text",
+                    text: delta,
+                  },
+                },
+              })
+              .catch((error) => {
+                log.error("failed to send text update to ACP", { error })
+              })
+            return
+          }
+
+          if (part.type === "reasoning") {
+            const delta = this.textDelta(part.id, part.text)
+            if (!delta) return
+            await this.connection
+              .sessionUpdate({
+                sessionId,
+                update: {
+                  sessionUpdate: "agent_thought_chunk",
+                  content: {
+                    type: "text",
+                    text: delta,
+                  },
+                },
+              })
+              .catch((error) => {
+                log.error("failed to send reasoning update to ACP", { error })
+              })
+            return
+          }
           return
         }
 
@@ -476,6 +517,7 @@ export namespace ACP {
           if (!part) return
 
           if (part.type === "text" && props.field === "text" && part.ignored !== true) {
+            this.textSnapshots.set(part.id, part.text)
             await this.connection
               .sessionUpdate({
                 sessionId,
@@ -494,6 +536,7 @@ export namespace ACP {
           }
 
           if (part.type === "reasoning" && props.field === "text") {
+            this.textSnapshots.set(part.id, part.text)
             await this.connection
               .sessionUpdate({
                 sessionId,
@@ -1083,6 +1126,14 @@ export namespace ACP {
       const output = part.state.metadata["output"]
       if (typeof output !== "string") return
       return output
+    }
+
+    private textDelta(id: string, next: string) {
+      const prev = this.textSnapshots.get(id) ?? ""
+      this.textSnapshots.set(id, next)
+      if (!next) return ""
+      if (next.startsWith(prev)) return next.slice(prev.length)
+      return next
     }
 
     private async toolStart(sessionId: string, part: ToolPart) {
